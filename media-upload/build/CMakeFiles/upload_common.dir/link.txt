@@ -1,0 +1,2 @@
+/usr/bin/ar qc libupload_common.a CMakeFiles/upload_common.dir/generated/upload.pb.cc.o CMakeFiles/upload_common.dir/generated/upload.grpc.pb.cc.o
+/usr/bin/ranlib libupload_common.a

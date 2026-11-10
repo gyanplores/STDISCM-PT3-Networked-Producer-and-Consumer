@@ -1,0 +1,5 @@
+/home/guest_user/STDISCM-PT3-Networked-Producer-and-Consumer/media-upload/build/CMakeFiles/upload_common.dir
+/home/guest_user/STDISCM-PT3-Networked-Producer-and-Consumer/media-upload/build/CMakeFiles/producer.dir
+/home/guest_user/STDISCM-PT3-Networked-Producer-and-Consumer/media-upload/build/CMakeFiles/consumer.dir
+/home/guest_user/STDISCM-PT3-Networked-Producer-and-Consumer/media-upload/build/CMakeFiles/edit_cache.dir
+/home/guest_user/STDISCM-PT3-Networked-Producer-and-Consumer/media-upload/build/CMakeFiles/rebuild_cache.dir
