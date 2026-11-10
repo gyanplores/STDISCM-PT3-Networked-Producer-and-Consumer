@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Producer Video Uploader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+</head>
+<body class="h-full flex flex-col bg-gray-950 text-slate-100">
+
+    <header class="bg-gray-700 border-b border-gray-700 px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 flex items-center justify-center text-white">
+                <i class="material-icons text-3xl">file_upload</i>
+            </div>
+            <h1 class="text-xl font-bold tracking-tight text-white">Video Uploader</h1>
+        </div>
+        
+        <button id="uploadButton" class="flex items-center space-x-2 font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white transition cursor-pointer">
+            <i class="material-icons text-lg">upload</i>
+            <span>Select Video</span>
+        </button>
+        <input type="file" id="videoFileInput" accept="video/*" multiple class="hidden" />
+    </header>
+
+    <main class="flex-1 max-w-4xl w-full mx-auto p-6 space-y-6 overflow-y-auto">
+        
+        <div id="previewContainer" class="hidden flex-col space-y-3 bg-gray-800 border border-gray-700 p-4 rounded-xl">
+            <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Client Preview</h2>
+            
+            <video id="videoPreview" controls class="w-full max-h-[360px] rounded-lg bg-black object-contain border border-gray-700">
+                Error Loading Video
+            </video>
+            
+            <div class="w-full bg-slate-900 rounded-lg p-3 flex items-center justify-between border border-gray-700">
+                <div class="flex items-center space-x-3 truncate">
+                    <i class="material-icons text-indigo-400 text-2xl">movie</i>
+                    <div class="truncate">
+                        <p id="fileName" class="text-sm font-semibold text-slate-200 truncate">No file selected</p>
+                        <p id="fileSize" class="text-xs text-slate-400">0 MB</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="uploadQueue" class="bg-slate-800 border border-slate-700 p-4 rounded-xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-700 pb-3">
+                <div class="flex items-center space-x-3">
+                    <h2 class="text-base font-semibold text-white">Video Queue</h2>
+                    <span id="queueBadgeCount" class="bg-indigo-600 text-xs text-white font-bold px-2.5 py-0.5 rounded-full">0</span>
+                </div>
+            </div>
+
+            <div id="queueList" class="space-y-3">
+                <p id="emptyMessage" class="text-xs text-slate-500 text-center py-6">No videos in queue.</p>
+            </div>
+        </div>
+    </main>
+
+
+    <script>
+        const videoFileInput = document.getElementById('videoFileInput');
+        const uploadButton = document.getElementById('uploadButton');
+        const previewContainer = document.getElementById('previewContainer');
+        const videoPreview = document.getElementById('videoPreview');
+        const fileNameDisplay = document.getElementById('fileName');
+        const fileSizeDisplay = document.getElementById('fileSize');
+        const queueList = document.getElementById('queueList');
+        const emptyMessage = document.getElementById('emptyMessage');
+        const queueBadgeCount = document.getElementById('queueBadgeCount');
+
+        let queue = [];
+
+        uploadButton.addEventListener('click', () => videoFileInput.click());
+
+        videoFileInput.addEventListener('change', async (e) => {
+            const files = Array.from(e.target.files);
+            if (!files.length) return;
+
+            const firstFile = files[0];
+            videoPreview.src = URL.createObjectURL(firstFile);
+            fileNameDisplay.textContent = firstFile.name;
+            fileSizeDisplay.textContent = (firstFile.size / (1024 * 1024)).toFixed(2) + ' MB';
+            previewContainer.classList.remove('hidden');
+            previewContainer.classList.add('flex');
+            
+
+            const newItems = files.map(file => ({
+                id: crypto.randomUUID,
+                file: file,
+                status: 'Uploading'
+            }));
+
+            newItems.forEach(item => {
+                queue.push(item);
+                renderQueueItem(item);
+            });
+
+            updateQueueCount();
+
+        });
+
+
+        function renderQueueItem(item) {
+            if (emptyMessage) emptyMessage.style.display = 'none';
+
+            const sizeMB = (item.file.size / (1024 * 1024)).toFixed(2);
+            const card = document.createElement('div');
+            card.id = `queue-item-${item.id}`;
+            card.className = "flex items-center justify-between bg-slate-900 border border-slate-700 p-3 rounded-lg";
+
+            card.innerHTML = `
+                <div class="flex items-center space-x-3 truncate">
+                    <i class="material-icons text-slate-400">video_file</i>
+                    <div class="truncate">
+                        <p class="text-sm font-medium text-slate-200 truncate">${item.file.name}</p>
+                        <p class="text-xs text-slate-400">${sizeMB} MB</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <span id="status-${item.id}" class="text-xs font-semibold px-2 py-0.5 rounded bg-slate-800 text-amber-400 border border-amber-400/30">Uploading...</span>
+                    <button onclick="removeFromQueue('${item.id}')" class="text-slate-400 hover:text-rose-400 p-1 rounded transition" title="Remove">
+                        <i class="material-icons text-lg">close</i>
+                    </button>
+                </div>
+            `;
+
+            queueList.appendChild(card);
+        }
+        
+        async function uploadFileToBackend(item) {
+           // add backend
+        }
+
+        function removeFromQueue(id) {
+            queue = queue.filter(item => item.id != id);
+            const card = document.getElementById(`queue-item-${id}`);
+            if (card) card.remove();
+
+            if (queue.length === 0) {
+                emptyMessage.style.display = 'block';
+            }
+            updateQueueCount();
+        }
+
+        function updateQueueCount() {
+            queueBadgeCount.textContent = queue.length;
+        }
+    </script>
+</body>
+</html>
