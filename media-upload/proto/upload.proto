@@ -1,0 +1,31 @@
+syntax = "proto3";
+package mediaupload;
+
+service MediaUpload {
+  rpc Upload(stream UploadChunk) returns (UploadResult);
+}
+
+message UploadChunk {
+  oneof payload {
+    FileMeta meta = 1;  // always the first message of a stream
+    bytes data = 2;     // every following message
+  }
+}
+
+message FileMeta {
+  string filename    = 1;
+  uint64 size_bytes  = 2;
+  string producer_id = 3;
+  string sha256      = 4;  // BONUS (duplicate detection): empty for now
+}
+
+enum Status {
+  ACCEPTED           = 0;
+  DROPPED_QUEUE_FULL = 1;  // leaky bucket: no free slot, video discarded
+  ERROR              = 2;
+}
+
+message UploadResult {
+  Status status  = 1;
+  string message = 2;
+}
