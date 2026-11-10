@@ -1,8 +1,16 @@
-// producer/main.cpp
+// producer/main.cpp -- entry point. Module 2 will add the upload threads.
 #include <iostream>
-#include "upload.grpc.pb.h"
-int main() {
-  mediaupload::UploadResult r;
-  r.set_status(mediaupload::DROPPED_QUEUE_FULL);
-  std::cout << "producer skeleton OK (" << mediaupload::Status_Name(r.status()) << ")\n";
+
+#include "config.h"
+#include "upload.grpc.pb.h"  // generated from proto/upload.proto (used from Module 2 on)
+
+int main(int argc, char** argv) {
+  config::ProducerConfig cfg;
+  int exit_code = 0;
+  // After this call the config is validated; everything below can trust it.
+  if (!config::parse_producer_config(argc, argv, cfg, exit_code)) return exit_code;
+
+  config::print_config(cfg);
+  std::cout << "producer: config OK (upload logic comes in Module 2)\n";
+  return 0;
 }

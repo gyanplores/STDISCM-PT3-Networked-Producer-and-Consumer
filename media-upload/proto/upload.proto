@@ -1,6 +1,10 @@
 syntax = "proto3";
+
 package mediaupload;
 
+// Client-streaming upload: the producer sends one FileMeta message first,
+// followed by any number of data chunks. The consumer answers once, after the
+// stream ends -- or immediately after FileMeta if the queue is full.
 service MediaUpload {
   rpc Upload(stream UploadChunk) returns (UploadResult);
 }
@@ -13,9 +17,9 @@ message UploadChunk {
 }
 
 message FileMeta {
-  string filename    = 1;
-  uint64 size_bytes  = 2;
-  string producer_id = 3;
+  string filename    = 1;  // original file name, e.g. "clip01.mp4"
+  uint64 size_bytes  = 2;  // total size, so the consumer can sanity-check
+  string producer_id = 3;  // which producer thread sent it, e.g. "producer-2"
   string sha256      = 4;  // BONUS (duplicate detection): empty for now
 }
 
@@ -27,5 +31,5 @@ enum Status {
 
 message UploadResult {
   Status status  = 1;
-  string message = 2;
+  string message = 2;  // human-readable detail for logs
 }
