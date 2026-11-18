@@ -48,6 +48,7 @@ target_link_libraries(client PRIVATE stream_proto OpenSSL::Crypto)
 
 # Consumer (Server). Run it from the server/ folder: it reads index.html,
 # cert.pem and key.pem from the current directory.
+# It uses OpenSSL directly (HTTPS gallery + SHA-256 check), so link it here.
 add_executable(server server/main.cpp)
 target_include_directories(server PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/server")
-target_link_libraries(server PRIVATE stream_proto)
+target_link_libraries(server PRIVATE stream_proto OpenSSL::SSL OpenSSL::Crypto)

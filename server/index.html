@@ -42,6 +42,11 @@
   </div>
 
   <script>
+    // Each video from /api/videos looks like:
+    //   { file: "3_clip.mp4", name: "my clip.mp4", preview: true }
+    //   file    = unique name on the server (used to build the URLs)
+    //   name    = original filename (what we show to the user)
+    //   preview = whether a 10-second preview exists
     let knownFiles = new Set();
 
     async function refreshVideos() {
@@ -51,37 +56,58 @@
         document.getElementById('statusBadge').textContent = `${videos.length} video(s) processed`;
 
         const gallery = document.getElementById('gallery');
-        for (const name of videos) {
-          if (knownFiles.has(name)) continue;
-          knownFiles.add(name);
+        for (const v of videos) {
+          if (knownFiles.has(v.file)) continue;
+          knownFiles.add(v.file);
 
+          // The card is built with DOM calls and textContent (not innerHTML),
+          // so a filename like <script>... is shown as text and never runs.
           const card = document.createElement('div');
           card.className = 'card';
-          card.innerHTML = `
-            <div class="video-box">
-              <video src="/previews/preview_${encodeURIComponent(name)}.mp4" muted loop preload="metadata"></video>
-              <span class="pill">Hover: 10s Preview</span>
-            </div>
-            <div class="meta" title="${name}">${name}</div>
-          `;
 
-          const vid = card.querySelector('video');
-          const pill = card.querySelector('.pill');
+          const box = document.createElement('div');
+          box.className = 'video-box';
+
+          const pill = document.createElement('span');
+          pill.className = 'pill';
+
+          const vid = document.createElement('video');
+          vid.muted = true;
+          vid.loop = true;
+          vid.preload = 'metadata';
+          if (v.preview) {
+            vid.src = `/previews/preview_${encodeURIComponent(v.file)}.mp4`;
+            pill.textContent = 'Hover: 10s Preview';
+          } else {
+            pill.textContent = 'No preview';
+          }
+          box.appendChild(vid);
+          box.appendChild(pill);
+
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          meta.title = v.name;
+          meta.textContent = v.name;
+
+          card.appendChild(box);
+          card.appendChild(meta);
 
           // 10-second preview on mouse hover
           card.addEventListener('mouseenter', () => {
+            if (!v.preview) return;
             vid.currentTime = 0;
             vid.play().catch(() => {});
             pill.textContent = 'Previewing (10s)...';
           });
           card.addEventListener('mouseleave', () => {
+            if (!v.preview) return;
             vid.pause();
             vid.currentTime = 0;
             pill.textContent = 'Hover: 10s Preview';
           });
 
           // Full video on click
-          card.addEventListener('click', () => openModal(name));
+          card.addEventListener('click', () => openModal(v));
           gallery.appendChild(card);
         }
       } catch (err) {
@@ -89,11 +115,11 @@
       }
     }
 
-    function openModal(filename) {
+    function openModal(v) {
       const modal = document.getElementById('modal');
       const player = document.getElementById('fullPlayer');
-      document.getElementById('modalTitle').textContent = filename;
-      player.src = `/uploads/${encodeURIComponent(filename)}`;
+      document.getElementById('modalTitle').textContent = v.name;
+      player.src = `/uploads/${encodeURIComponent(v.file)}`;
       modal.classList.add('open');
     }
 
