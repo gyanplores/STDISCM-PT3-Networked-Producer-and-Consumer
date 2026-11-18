@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package media;
+
+service VideoUploadService {
+  // Client streams video metadata + 64KB chunks; server returns status (OK, RESOURCE_EXHAUSTED, ALREADY_EXISTS)
+  rpc UploadVideo (stream VideoPacket) returns (UploadResponse) {}
+}
+
+message VideoMetadata {
+  string filename = 1;
+  string sha256_hash = 2;
+  int32 producer_id = 3;
+}
+
+message VideoPacket {
+  oneof payload {
+    VideoMetadata metadata = 1;
+    bytes chunk_data = 2;
+  }
+}
+
+message UploadResponse {
+  bool accepted = 1;
+  string status_message = 2; // e.g., "Queued", "Dropped: Queue Full", "Rejected: Duplicate"
+}
