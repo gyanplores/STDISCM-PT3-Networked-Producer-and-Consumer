@@ -141,6 +141,26 @@ struct CompletedVideo {
     bool has_preview;
 };
 
+// Holds one claimed queue place for the length of an upload. If the function
+// returns early for ANY reason (corrupted, cancelled, duplicate, error), the
+// destructor gives the place back automatically. Only commit() keeps it.
+class QueueReservation {
+public:
+    explicit QueueReservation(BoundedQueue<UploadJob>& q) : q_(q), active_(true) {}
+    ~QueueReservation() { if (active_) q_.cancel_reservation(); }
+    QueueReservation(const QueueReservation&) = delete;
+    QueueReservation& operator=(const QueueReservation&) = delete;
+
+    void commit(UploadJob job) {
+        active_ = false;
+        q_.commit(std::move(job));
+    }
+
+private:
+    BoundedQueue<UploadJob>& q_;
+    bool active_;
+};
+
 class MediaConsumerService final : public media::VideoUploadService::Service {
 public:
     MediaConsumerService(size_t max_queue_len, int num_consumers)
@@ -190,6 +210,19 @@ public:
                 return grpc::Status(grpc::StatusCode::ALREADY_EXISTS, "Duplicate video already uploaded");
             }
         }
+
+        // Claim a queue place NOW, before any video bytes are received. If the
+        // queue is full we answer immediately: the producer finds out at once
+        // and nothing is uploaded and then thrown away. (Before, the server
+        // received the whole video first and only then noticed the queue was full.)
+        if (!upload_queue_.try_reserve()) {
+            std::cout << "[Queue FULL] Rejected '" << display_name << "' from Producer " << prod_id
+                      << " before receiving it\n";
+            response->set_accepted(false);
+            response->set_status_message("Queue is full; video dropped");
+            return grpc::Status(grpc::StatusCode::RESOURCE_EXHAUSTED, "Queue is full (capacity reached)");
+        }
+        QueueReservation reservation(upload_queue_);  // gives the place back on any early return
 
         // Every upload gets a unique id, so two videos with the same filename
         // can never overwrite each other. The id is part of the stored name.
@@ -255,14 +288,8 @@ public:
                 return grpc::Status(grpc::StatusCode::ALREADY_EXISTS, "Duplicate video already uploaded");
             }
 
-            UploadJob job{display_name, stored_name, hash, staging_file, prod_id};
-            if (!upload_queue_.try_push(std::move(job))) {
-                fs::remove(staging_file, ec);
-                std::cout << "[Queue FULL] Dropped '" << display_name << "' from Producer " << prod_id << "\n";
-                response->set_accepted(false);
-                response->set_status_message("Queue is full; video dropped");
-                return grpc::Status(grpc::StatusCode::RESOURCE_EXHAUSTED, "Queue is full (capacity reached)");
-            }
+            // The place was claimed at the start, so this cannot fail.
+            reservation.commit(UploadJob{display_name, stored_name, hash, staging_file, prod_id});
 
             if (!hash.empty()) {
                 seen_hashes_.insert(hash);
