@@ -52,3 +52,9 @@ target_link_libraries(client PRIVATE stream_proto OpenSSL::Crypto)
 add_executable(server server/main.cpp)
 target_include_directories(server PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/server")
 target_link_libraries(server PRIVATE stream_proto OpenSSL::SSL OpenSSL::Crypto)
+
+# Self-check for the queue (does not need gRPC): cmake --build build --target queue_test
+add_executable(queue_test tests/queue_test.cpp)
+target_include_directories(queue_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/server")
+find_package(Threads REQUIRED)
+target_link_libraries(queue_test PRIVATE Threads::Threads)

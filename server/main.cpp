@@ -8,6 +8,8 @@
 #include <unordered_set>
 #include <filesystem>
 #include <atomic>
+#include <algorithm>
+#include <utility>
 #include <cstdlib>
 #include <cstdio>
 #include <cctype>
@@ -168,6 +170,7 @@ public:
         fs::create_directories("staging");
         fs::create_directories("uploads");
         fs::create_directories("previews");
+        LoadExistingUploads();
 
         for (int i = 0; i < num_consumers; ++i) {
             workers_.emplace_back(&MediaConsumerService::ConsumerWorker, this, i);
@@ -305,6 +308,40 @@ public:
     }
 
 private:
+    // Runs once at startup. Videos saved by an earlier run are still in uploads/,
+    // so (1) the new id counter must start AFTER the highest id already used,
+    // otherwise a new upload could get the name "0_x.mp4" again and overwrite an
+    // old video, and (2) those videos are put back in the gallery.
+    // The original filename is not stored anywhere, so the gallery shows the
+    // saved name without its "<id>_" prefix.
+    void LoadExistingUploads() {
+        std::vector<std::pair<uint64_t, CompletedVideo>> found;
+        uint64_t next_id = 0;
+        std::error_code ec;
+        for (const auto& entry : fs::directory_iterator("uploads", ec)) {
+            if (!entry.is_regular_file()) continue;
+            std::string name = entry.path().filename().string();
+            size_t us = name.find('_');
+            if (us == std::string::npos || us == 0) continue;
+            uint64_t id = 0;
+            try {
+                size_t used = 0;
+                id = std::stoull(name.substr(0, us), &used);
+                if (used != us) continue;
+            } catch (...) { continue; }
+            bool has_preview = fs::exists(fs::path("previews") / ("preview_" + name + ".mp4"));
+            found.push_back({id, CompletedVideo{name, name.substr(us + 1), has_preview}});
+            if (id + 1 > next_id) next_id = id + 1;
+        }
+        std::sort(found.begin(), found.end(),
+                  [](const auto& a, const auto& b) { return a.first < b.first; });
+        for (auto& f : found) completed_videos_.push_back(f.second);
+        job_counter_ = next_id;
+        if (!found.empty()) {
+            std::cout << "Found " << found.size() << " video(s) from an earlier run; next id is " << next_id << "\n";
+        }
+    }
+
     void ConsumerWorker(int worker_id) {
         while (auto job_opt = upload_queue_.pop()) {
             UploadJob job = std::move(*job_opt);

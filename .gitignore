@@ -1,4 +1,13 @@
+# Build output (any folder called build, including media-upload/build)
 build/
+
+# Files the consumer creates while running
 uploads/
 previews/
 staging/
+
+# Test videos for the producer (too big for git)
+producer_inputs/
+
+# Personal editor settings
+.vscode/
