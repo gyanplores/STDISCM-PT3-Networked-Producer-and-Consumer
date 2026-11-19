@@ -6,6 +6,7 @@
 #include <string>
 #include <thread>
 #include <mutex>
+#include <algorithm>
 #include <filesystem>
 #include <cstdio>
 #include <cstdlib>
@@ -13,6 +14,7 @@
 #include <openssl/evp.h>
 #include <grpcpp/grpcpp.h>
 #include "stream.grpc.pb.h"
+#include "config.hpp"
 
 namespace fs = std::filesystem;
 std::mutex g_log_mtx;
@@ -51,7 +53,7 @@ std::string ComputeSHA256(const fs::path& filepath) {
 }
 
 // Compress video via FFmpeg (Bonus #3) into a valid seekable MP4 temp file.
-// Only used when the program is started with --compress.
+// Only used when compression is turned on (--compress or "compress": true).
 bool CompressVideo(const fs::path& src, const fs::path& dst) {
     std::string cmd = "ffmpeg -nostdin -y -hide_banner -loglevel error -i \"" + src.string() +
                       "\" -c:v libx264 -crf 28 -preset veryfast -c:a aac -b:a 96k \"" +
@@ -65,17 +67,22 @@ bool IsVideoFile(const fs::path& p) {
     return ext == ".mp4" || ext == ".mkv" || ext == ".avi" || ext == ".mov" || ext == ".ts";
 }
 
-// True only if `text` is a whole number between lo and hi (inclusive).
-bool ParseIntInRange(const std::string& text, int lo, int hi, int& out) {
-    try {
-        size_t used = 0;
-        long value = std::stol(text, &used);
-        if (used != text.size() || value < lo || value > hi) return false;
-        out = static_cast<int>(value);
-        return true;
-    } catch (...) {
-        return false;
+// "Dynamic threading": instead of being told how many producers to start, look at
+// the input folder and find every sub-folder named p0, p1, p2, ... The number in
+// the name is that producer's id. One producer thread is started per folder, so
+// the spec still holds: every producer thread reads its own separate folder.
+std::vector<int> DiscoverProducerFolders(const fs::path& root) {
+    std::vector<int> ids;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(root, ec)) {
+        if (!entry.is_directory()) continue;
+        std::string name = entry.path().filename().string();
+        if (name.size() < 2 || name[0] != 'p') continue;
+        int id = 0;
+        if (cfg::ParseIntInRange(name.substr(1), 0, 100000, id)) ids.push_back(id);
     }
+    std::sort(ids.begin(), ids.end());
+    return ids;
 }
 
 void ProducerWorker(int producer_id, const std::string& server_addr, const fs::path& input_dir, bool compress) {
@@ -124,15 +131,21 @@ void ProducerWorker(int producer_id, const std::string& server_addr, const fs::p
             send_name = src_path.stem().string() + ".mp4";
         }
 
-        // Hash the file we are about to send (see ComputeSHA256).
+        // The metadata the consumer will be able to check: size and SHA-256 of
+        // the exact file we are about to send (see ComputeSHA256).
+        std::error_code size_ec;
+        std::uintmax_t file_size = fs::file_size(send_path, size_ec);
         std::string hash = ComputeSHA256(send_path);
 
         std::ifstream in_file(send_path, std::ios::binary);
-        if (!in_file) {
+        if (size_ec || !in_file) {
             Log(tag + "Could not open '" + filename + "', skipping");
             if (is_temp_copy) { std::error_code ec; fs::remove(send_path, ec); }
             continue;
         }
+
+        Log(tag + "Sending '" + send_name + "'  size=" + std::to_string(file_size) +
+            " bytes  sha256=" + hash);
 
         grpc::ClientContext context;
         media::UploadResponse response;
@@ -144,6 +157,7 @@ void ProducerWorker(int producer_id, const std::string& server_addr, const fs::p
         meta->set_filename(send_name);
         meta->set_sha256_hash(hash);
         meta->set_producer_id(producer_id);
+        meta->set_file_size(static_cast<int64_t>(file_size));
 
         if (!writer->Write(meta_pkt)) {
             Log(tag + "Server closed stream early for: " + filename);
@@ -168,7 +182,18 @@ void ProducerWorker(int producer_id, const std::string& server_addr, const fs::p
         }
 
         if (status.ok()) {
-            Log(tag + "ACCEPTED '" + filename + "' -> " + response.status_message());
+            Log(tag + "ACCEPTED '" + send_name + "' -> " + response.status_message());
+            // Compare what the consumer measured with what we sent.
+            if (response.received_sha256().empty()) {
+                Log(tag + "  (consumer did not report its own size/hash)");
+            } else if (response.received_sha256() == hash &&
+                       response.received_size() == static_cast<int64_t>(file_size)) {
+                Log(tag + "  VERIFIED: consumer received size=" + std::to_string(response.received_size()) +
+                    " sha256=" + response.received_sha256() + "  (identical to what was sent)");
+            } else {
+                Log(tag + "  WARNING: consumer reports size=" + std::to_string(response.received_size()) +
+                    " sha256=" + response.received_sha256() + "  (DIFFERENT from what was sent)");
+            }
         } else if (status.error_code() == grpc::StatusCode::RESOURCE_EXHAUSTED) {
             Log(tag + "DROPPED (QUEUE FULL) '" + filename + "' -> " + status.error_message());
         } else if (status.error_code() == grpc::StatusCode::ALREADY_EXISTS) {
@@ -182,40 +207,64 @@ void ProducerWorker(int producer_id, const std::string& server_addr, const fs::p
 }
 
 int main(int argc, char** argv) {
-    // Usage: client <p> [server_address] [--compress]
-    //   p              number of producer threads (folders producer_inputs/p0 ... p{p-1})
+    // Usage: client [p|auto] [server_address] [--compress] [--config <file>]
+    //   p | auto       how many producer threads. "auto" = one per folder found in
+    //                  producer_inputs/ (p0, p1, ...). A number = p0 ... p{p-1}.
     //   server_address default localhost:50051
     //   --compress     compress each video with ffmpeg before uploading (off by default)
+    //   --config       use this config file instead of config.json
+    // Anything left out comes from config.json ("producer" section), and
+    // if p is still unknown the program asks for it.
     std::vector<std::string> args;
-    bool compress = false;
+    bool compress_flag = false;
+    std::string config_path;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
-        if (a == "--compress") compress = true;
-        else args.push_back(a);
+        if (a == "--compress") {
+            compress_flag = true;
+        } else if (a == "--config" && i + 1 < argc) {
+            config_path = argv[++i];
+        } else {
+            args.push_back(a);
+        }
     }
 
-    std::string p_text;
-    std::string server_addr = "localhost:50051";
+    nlohmann::json settings = cfg::Section(cfg::Load(config_path), "producer");
 
-    if (!args.empty()) {
-        p_text = args[0];
+    std::string threads_text = !args.empty() ? args[0] : cfg::GetText(settings, "threads");
+    if (threads_text.empty()) {
+        std::cout << "Enter number of producer threads (p), or 'auto': ";
+        std::cin >> threads_text;
+    }
+
+    std::string server_addr = args.size() >= 2 ? args[1] : cfg::GetText(settings, "server_address");
+    if (server_addr.empty()) server_addr = "localhost:50051";
+
+    std::string input_root_text = cfg::GetText(settings, "input_folder");
+    fs::path input_root = input_root_text.empty() ? fs::path("producer_inputs") : fs::path(input_root_text);
+
+    bool compress = compress_flag || cfg::GetBool(settings, "compress", false);
+
+    // Decide which producer folders (and so which threads) to use.
+    std::vector<int> ids;
+    if (threads_text == "auto") {
+        ids = DiscoverProducerFolders(input_root);
+        if (ids.empty()) {
+            std::cerr << "error: threads is 'auto' but no folders named p0, p1, ... were found in '"
+                      << input_root.string() << "'.\n"
+                      << "Create them and put videos inside, or give a number instead of 'auto'.\n";
+            return 1;
+        }
     } else {
-        std::cout << "Enter number of producer threads (p): ";
-        std::cin >> p_text;
+        int p = 0;
+        if (!cfg::ParseIntInRange(threads_text, 1, 1000, p)) {
+            std::cerr << "error: p (producer threads) must be a whole number from 1 to 1000 or 'auto', got '"
+                      << threads_text << "'\n"
+                      << "usage: client [p|auto] [server_address] [--compress] [--config <file>]\n";
+            return 1;
+        }
+        for (int i = 0; i < p; ++i) ids.push_back(i);
     }
-    if (args.size() >= 2) {
-        server_addr = args[1];
-    }
-
-    int p = 0;
-    if (!ParseIntInRange(p_text, 1, 1000, p)) {
-        std::cerr << "error: p (producer threads) must be a whole number from 1 to 1000, got '" << p_text << "'\n"
-                  << "usage: client <p> [server_address] [--compress]\n";
-        return 1;
-    }
-
-    std::cout << "Starting " << p << " Producer threads targeting " << server_addr
-              << (compress ? " (compression ON)" : "") << "...\n";
 
     if (compress) {
 #ifdef _WIN32
@@ -224,15 +273,19 @@ int main(int argc, char** argv) {
         bool have_ffmpeg = std::system("ffmpeg -version >/dev/null 2>&1") == 0;
 #endif
         if (!have_ffmpeg) {
-            std::cerr << "error: --compress needs ffmpeg on PATH, but it was not found.\n";
+            std::cerr << "error: compression needs ffmpeg on PATH, but it was not found.\n";
             return 1;
         }
     }
 
+    std::cout << "Starting " << ids.size() << " Producer thread(s) targeting " << server_addr
+              << (threads_text == "auto" ? " (found by scanning " + input_root.string() + ")" : "")
+              << (compress ? " (compression ON)" : "") << "...\n";
+
     std::vector<std::thread> producers;
-    for (int i = 0; i < p; ++i) {
-        fs::path folder = fs::path("producer_inputs") / ("p" + std::to_string(i));
-        producers.emplace_back(ProducerWorker, i, server_addr, folder, compress);
+    for (int id : ids) {
+        fs::path folder = input_root / ("p" + std::to_string(id));
+        producers.emplace_back(ProducerWorker, id, server_addr, folder, compress);
     }
 
     for (auto& t : producers) {

@@ -2,25 +2,46 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Media Upload Consumer GUI</title>
   <style>
     body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 24px; }
-    header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 16px; margin-bottom: 24px; }
+    header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid #334155; padding-bottom: 16px; margin-bottom: 16px; }
     h1 { margin: 0; font-size: 1.5rem; }
     .badge { background: #1e293b; border: 1px solid #38bdf8; color: #38bdf8; padding: 6px 12px; border-radius: 999px; font-size: 0.85rem; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+    .toolbar input, .toolbar select { background: #1e293b; color: #f8fafc; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px; font-size: 0.95rem; }
+    .toolbar input { flex: 1; min-width: 200px; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
     .card { background: #1e293b; border-radius: 10px; overflow: hidden; cursor: pointer; border: 1px solid #334155; transition: transform 0.15s, border-color 0.15s; }
     .card:hover { transform: translateY(-4px); border-color: #38bdf8; }
     .video-box { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; }
     .video-box video { width: 100%; height: 100%; object-fit: cover; display: block; }
     .pill { position: absolute; top: 8px; right: 8px; background: rgba(15, 23, 42, 0.85); color: #38bdf8; font-size: 0.72rem; padding: 3px 8px; border-radius: 4px; pointer-events: none; }
-    .meta { padding: 12px 14px; font-weight: 600; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    #modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); align-items: center; justify-content: center; z-index: 50; }
+    .ok-pill { position: absolute; top: 8px; left: 8px; background: rgba(5, 46, 22, 0.9); color: #4ade80; font-size: 0.72rem; padding: 3px 8px; border-radius: 4px; pointer-events: none; }
+    .meta { padding: 12px 14px 4px; font-weight: 600; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sub { padding: 0 14px 12px; font-size: 0.8rem; color: #94a3b8; }
+    .empty { color: #94a3b8; padding: 24px 0; }
+    #modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); align-items: center; justify-content: center; z-index: 50; overflow-y: auto; }
     #modal.open { display: flex; }
-    .modal-content { background: #1e293b; padding: 16px; border-radius: 12px; max-width: 900px; width: 92%; }
-    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .modal-content { background: #1e293b; padding: 16px; border-radius: 12px; max-width: 1200px; width: 94%; max-height: 94vh; overflow-y: auto; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; }
+    .modal-header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .close-btn { background: #ef4444; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; }
-    #fullPlayer { width: 100%; max-height: 75vh; background: #000; border-radius: 8px; }
+    .modal-body { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 16px; }
+    @media (max-width: 800px) { .modal-body { grid-template-columns: 1fr; } }
+    #fullPlayer { width: 100%; max-height: 70vh; background: #000; border-radius: 8px; }
+    .details { font-size: 0.88rem; }
+    .details dl { margin: 0; }
+    .details dt { color: #94a3b8; font-size: 0.75rem; margin-top: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .details dd { margin: 2px 0 0; word-break: break-all; }
+    .hash { font-family: ui-monospace, Consolas, monospace; font-size: 0.78rem; }
+    .verdict { margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-weight: 600; }
+    .verdict.good { background: #052e16; border: 1px solid #4ade80; color: #4ade80; }
+    .verdict.warn { background: #422006; border: 1px solid #fbbf24; color: #fbbf24; }
+    .hint { margin-top: 12px; color: #94a3b8; font-size: 0.78rem; }
+    .hint code { background: #0f172a; padding: 2px 6px; border-radius: 4px; word-break: break-all; }
+    .dl-link { display: inline-block; margin-top: 12px; background: #38bdf8; color: #0f172a; text-decoration: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -29,7 +50,20 @@
     <span class="badge" id="statusBadge">Loading...</span>
   </header>
 
+  <div class="toolbar">
+    <input id="search" type="search" placeholder="Search by name or producer (e.g. holiday or p2)..." />
+    <select id="sort">
+      <option value="newest">Sort: newest first</option>
+      <option value="oldest">Sort: oldest first</option>
+      <option value="name-asc">Sort: name A to Z</option>
+      <option value="name-desc">Sort: name Z to A</option>
+      <option value="size-desc">Sort: largest first</option>
+      <option value="size-asc">Sort: smallest first</option>
+    </select>
+  </div>
+
   <div class="grid" id="gallery"></div>
+  <div class="empty" id="empty" style="display:none"></div>
 
   <div id="modal" onclick="if(event.target === this) closeModal()">
     <div class="modal-content">
@@ -37,82 +71,163 @@
         <strong id="modalTitle">Video</strong>
         <button class="close-btn" onclick="closeModal()">Close</button>
       </div>
-      <video id="fullPlayer" controls autoplay></video>
+      <div class="modal-body">
+        <video id="fullPlayer" controls autoplay></video>
+        <div class="details" id="details"></div>
+      </div>
     </div>
   </div>
 
   <script>
     // Each video from /api/videos looks like:
-    //   { file: "3_clip.mp4", name: "my clip.mp4", preview: true }
-    //   file    = unique name on the server (used to build the URLs)
-    //   name    = original filename (what we show to the user)
-    //   preview = whether a 10-second preview exists
-    let knownFiles = new Set();
+    //   { file, name, preview, producer, size, declared_size, sha256,
+    //     computed_sha256, verified, uploaded_at, duration }
+    //   file = unique name on the server (used to build the URLs)
+    //   name = original filename (what we show to the user)
+    let videos = [];        // latest list from the server (each gets an .idx = arrival order)
+    let lastJson = '';      // used to redraw only when the list really changed
 
+    // ---------- formatting helpers ----------
+    function formatSize(bytes) {
+      if (!bytes) return 'unknown size';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let i = 0, n = bytes;
+      while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+      return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+    }
+    function formatDuration(sec) {
+      if (!sec) return 'unknown';
+      const s = Math.round(sec);
+      return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    }
+    function formatTime(epoch) {
+      return epoch ? new Date(epoch * 1000).toLocaleString() : 'unknown';
+    }
+
+    // ---------- search + sort, then draw ----------
+    function visibleVideos() {
+      const text = document.getElementById('search').value.trim().toLowerCase();
+      const sort = document.getElementById('sort').value;
+      let list = videos.filter(v =>
+        !text || v.name.toLowerCase().includes(text) ||
+        `p${v.producer}`.includes(text) || `producer ${v.producer}`.includes(text));
+
+      const byTime = (a, b) => (a.uploaded_at - b.uploaded_at) || (a.idx - b.idx);
+      const sorters = {
+        'newest':    (a, b) => byTime(b, a),
+        'oldest':    (a, b) => byTime(a, b),
+        'name-asc':  (a, b) => a.name.localeCompare(b.name),
+        'name-desc': (a, b) => b.name.localeCompare(a.name),
+        'size-desc': (a, b) => b.size - a.size,
+        'size-asc':  (a, b) => a.size - b.size,
+      };
+      return list.sort(sorters[sort]);
+    }
+
+    function render() {
+      const gallery = document.getElementById('gallery');
+      const list = visibleVideos();
+      gallery.replaceChildren();
+
+      document.getElementById('statusBadge').textContent =
+        list.length === videos.length ? `${videos.length} video(s) processed`
+                                      : `${list.length} of ${videos.length} video(s) shown`;
+      const empty = document.getElementById('empty');
+      empty.style.display = list.length ? 'none' : 'block';
+      empty.textContent = videos.length ? 'No videos match your search.' : 'No videos uploaded yet.';
+
+      for (const v of list) gallery.appendChild(makeCard(v));
+    }
+
+    // The card is built with DOM calls and textContent (not innerHTML),
+    // so a filename like <script>... is shown as text and never runs.
+    function makeCard(v) {
+      const card = document.createElement('div');
+      card.className = 'card';
+
+      const box = document.createElement('div');
+      box.className = 'video-box';
+
+      const pill = document.createElement('span');
+      pill.className = 'pill';
+
+      const vid = document.createElement('video');
+      vid.muted = true;
+      vid.loop = true;
+      vid.preload = 'metadata';
+      if (v.preview) {
+        vid.src = `/previews/preview_${encodeURIComponent(v.file)}.mp4`;
+        pill.textContent = 'Hover: 10s Preview';
+      } else {
+        pill.textContent = 'No preview';
+      }
+      box.appendChild(vid);
+      box.appendChild(pill);
+
+      if (v.verified) {
+        const ok = document.createElement('span');
+        ok.className = 'ok-pill';
+        ok.textContent = '✔ hash verified';
+        box.appendChild(ok);
+      }
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.title = v.name;
+      meta.textContent = v.name;
+
+      const sub = document.createElement('div');
+      sub.className = 'sub';
+      sub.textContent = `${formatSize(v.size)} · ${formatDuration(v.duration)} · from producer ${v.producer}`;
+
+      card.appendChild(box);
+      card.appendChild(meta);
+      card.appendChild(sub);
+
+      // 10-second preview on mouse hover
+      card.addEventListener('mouseenter', () => {
+        if (!v.preview) return;
+        vid.currentTime = 0;
+        vid.play().catch(() => {});
+        pill.textContent = 'Previewing (10s)...';
+      });
+      card.addEventListener('mouseleave', () => {
+        if (!v.preview) return;
+        vid.pause();
+        vid.currentTime = 0;
+        pill.textContent = 'Hover: 10s Preview';
+      });
+
+      // Full video + details on click
+      card.addEventListener('click', () => openModal(v));
+      return card;
+    }
+
+    // ---------- talking to the server ----------
     async function refreshVideos() {
       try {
         const res = await fetch('/api/videos');
-        const videos = await res.json();
-        document.getElementById('statusBadge').textContent = `${videos.length} video(s) processed`;
-
-        const gallery = document.getElementById('gallery');
-        for (const v of videos) {
-          if (knownFiles.has(v.file)) continue;
-          knownFiles.add(v.file);
-
-          // The card is built with DOM calls and textContent (not innerHTML),
-          // so a filename like <script>... is shown as text and never runs.
-          const card = document.createElement('div');
-          card.className = 'card';
-
-          const box = document.createElement('div');
-          box.className = 'video-box';
-
-          const pill = document.createElement('span');
-          pill.className = 'pill';
-
-          const vid = document.createElement('video');
-          vid.muted = true;
-          vid.loop = true;
-          vid.preload = 'metadata';
-          if (v.preview) {
-            vid.src = `/previews/preview_${encodeURIComponent(v.file)}.mp4`;
-            pill.textContent = 'Hover: 10s Preview';
-          } else {
-            pill.textContent = 'No preview';
-          }
-          box.appendChild(vid);
-          box.appendChild(pill);
-
-          const meta = document.createElement('div');
-          meta.className = 'meta';
-          meta.title = v.name;
-          meta.textContent = v.name;
-
-          card.appendChild(box);
-          card.appendChild(meta);
-
-          // 10-second preview on mouse hover
-          card.addEventListener('mouseenter', () => {
-            if (!v.preview) return;
-            vid.currentTime = 0;
-            vid.play().catch(() => {});
-            pill.textContent = 'Previewing (10s)...';
-          });
-          card.addEventListener('mouseleave', () => {
-            if (!v.preview) return;
-            vid.pause();
-            vid.currentTime = 0;
-            pill.textContent = 'Hover: 10s Preview';
-          });
-
-          // Full video on click
-          card.addEventListener('click', () => openModal(v));
-          gallery.appendChild(card);
+        const text = await res.text();
+        if (text !== lastJson) {          // redraw only when something changed
+          lastJson = text;
+          videos = JSON.parse(text);
+          videos.forEach((v, i) => { v.idx = i; });
+          render();
         }
       } catch (err) {
         document.getElementById('statusBadge').textContent = 'Disconnected';
       }
+    }
+
+    // ---------- the player + details panel ----------
+    function addDetail(list, label, value, extraClass) {
+      const dt = document.createElement('dt');
+      dt.textContent = label;
+      const dd = document.createElement('dd');
+      dd.textContent = value;
+      if (extraClass) dd.className = extraClass;
+      list.appendChild(dt);
+      list.appendChild(dd);
     }
 
     function openModal(v) {
@@ -120,6 +235,55 @@
       const player = document.getElementById('fullPlayer');
       document.getElementById('modalTitle').textContent = v.name;
       player.src = `/uploads/${encodeURIComponent(v.file)}`;
+
+      const details = document.getElementById('details');
+      details.replaceChildren();
+
+      const dl = document.createElement('dl');
+      addDetail(dl, 'Original filename', v.name);
+      addDetail(dl, 'Stored on consumer as', v.file);
+      addDetail(dl, 'Sent by', `Producer ${v.producer}`);
+      addDetail(dl, 'Uploaded at', formatTime(v.uploaded_at));
+      addDetail(dl, 'Duration', formatDuration(v.duration));
+      addDetail(dl, 'Size: producer said', v.declared_size ? `${v.declared_size.toLocaleString()} bytes` : 'not sent');
+      addDetail(dl, 'Size: consumer received', `${v.size.toLocaleString()} bytes`);
+      addDetail(dl, 'SHA-256: producer computed', v.sha256 || 'not sent', 'hash');
+      addDetail(dl, 'SHA-256: consumer computed', v.computed_sha256 || 'unknown', 'hash');
+      details.appendChild(dl);
+
+      const verdict = document.createElement('div');
+      if (v.verified) {
+        verdict.className = 'verdict good';
+        verdict.textContent = '✔ Producer and consumer values are identical: the file was not corrupted in transfer.';
+      } else {
+        verdict.className = 'verdict warn';
+        verdict.textContent = 'Not verified: the producer did not send a hash for this video.';
+      }
+      details.appendChild(verdict);
+
+      // Download link + the command that checks a downloaded copy.
+      if (v.computed_sha256) {
+        const a = document.createElement('a');
+        a.className = 'dl-link';
+        a.href = `/uploads/${encodeURIComponent(v.file)}`;
+        a.download = v.name;
+        a.textContent = 'Download this video';
+        details.appendChild(a);
+
+        const hint = document.createElement('div');
+        hint.className = 'hint';
+        hint.append('To check the downloaded copy, run ');
+        const code = document.createElement('code');
+        code.textContent = 'sha256sum <downloaded file>';
+        hint.appendChild(code);
+        hint.append(' (Windows: ');
+        const code2 = document.createElement('code');
+        code2.textContent = 'certutil -hashfile <downloaded file> SHA256';
+        hint.appendChild(code2);
+        hint.append(') and compare it with the consumer hash above.');
+        details.appendChild(hint);
+      }
+
       modal.classList.add('open');
     }
 
@@ -130,6 +294,10 @@
       player.src = '';
       modal.classList.remove('open');
     }
+
+    document.getElementById('search').addEventListener('input', render);
+    document.getElementById('sort').addEventListener('change', render);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
     refreshVideos();
     setInterval(refreshVideos, 2000);

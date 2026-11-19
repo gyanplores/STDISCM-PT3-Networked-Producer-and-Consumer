@@ -5,6 +5,7 @@ build/
 uploads/
 previews/
 staging/
+meta/
 
 # Test videos for the producer (too big for git)
 producer_inputs/

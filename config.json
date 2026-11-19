@@ -1,0 +1,14 @@
+{
+  "producer": {
+    "threads": "auto",
+    "server_address": "localhost:50051",
+    "input_folder": "producer_inputs",
+    "compress": false
+  },
+  "consumer": {
+    "threads": 2,
+    "queue_length": 5,
+    "grpc_port": 50051,
+    "gui_port": 8443
+  }
+}

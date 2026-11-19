@@ -41,16 +41,21 @@ add_library(stream_proto STATIC ${PROTO_SRCS} ${GRPC_SRCS})
 target_include_directories(stream_proto PUBLIC "${GENERATED_DIR}")
 target_link_libraries(stream_proto PUBLIC gRPC::grpc++ protobuf::libprotobuf)
 
+# common/config.hpp (reads config.json) and third_party/json.hpp (JSON library)
+# are shared by both programs.
+set(SHARED_INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/common" "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+
 # Producer (Client). The source folder in the repo is producer/.
 # The program it builds is still called "client" (client.exe on Windows).
 add_executable(client producer/main.cpp)
+target_include_directories(client PRIVATE ${SHARED_INCLUDES})
 target_link_libraries(client PRIVATE stream_proto OpenSSL::Crypto)
 
 # Consumer (Server). Run it from the server/ folder: it reads index.html,
 # cert.pem and key.pem from the current directory.
 # It uses OpenSSL directly (HTTPS gallery + SHA-256 check), so link it here.
 add_executable(server server/main.cpp)
-target_include_directories(server PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/server")
+target_include_directories(server PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/server" ${SHARED_INCLUDES})
 target_link_libraries(server PRIVATE stream_proto OpenSSL::SSL OpenSSL::Crypto)
 
 # Self-check for the queue (does not need gRPC): cmake --build build --target queue_test

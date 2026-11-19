@@ -3,7 +3,8 @@ syntax = "proto3";
 package media;
 
 service VideoUploadService {
-  // Client streams video metadata + 64KB chunks; server returns status (OK, RESOURCE_EXHAUSTED, ALREADY_EXISTS)
+  // Client streams video metadata + 64KB chunks; server returns status
+  // (OK, RESOURCE_EXHAUSTED, ALREADY_EXISTS, DATA_LOSS)
   rpc UploadVideo (stream VideoPacket) returns (UploadResponse) {}
 }
 
@@ -11,6 +12,7 @@ message VideoMetadata {
   string filename = 1;
   string sha256_hash = 2;
   int32 producer_id = 3;
+  int64 file_size = 4;       // size in bytes of the file the producer is sending
 }
 
 message VideoPacket {
@@ -23,4 +25,8 @@ message VideoPacket {
 message UploadResponse {
   bool accepted = 1;
   string status_message = 2; // e.g., "Queued", "Dropped: Queue Full", "Rejected: Duplicate"
+  // What the consumer measured on the bytes it actually received. The producer
+  // compares these with its own values to prove nothing changed in transit.
+  string received_sha256 = 3;
+  int64 received_size = 4;
 }
